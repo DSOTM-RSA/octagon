@@ -1,0 +1,64 @@
+---
+title: "events_fighter"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r cars}
+# event results
+library(rvest)
+library(tidyverse)
+library(glue)
+```
+
+Get all tables
+
+```{r}
+url <- "https://www.sherdog.com/fighter/Justin-Gaethje-46648"
+read_html(url) %>% html_nodes("table") %>% html_table()
+```
+
+Get specific table.
+
+```{r}
+read_html(url) %>% html_nodes("body > div.container > div:nth-child(3) > div.col_left > section:nth-child(4) > div > div.content.table") %>% html_children() %>% html_table(header = TRUE) %>% as.data.frame() -> a
+```
+
+```{r}
+seed_div <- read_html(url) %>% html_nodes("td:nth-child(2) a , .cnaccept") %>% html_attr(.,"href") %>% as.data.frame() %>% unique()
+names(seed_div)[1]<-"fighterName"
+rownames(seed_div)<-str_split(seed_div$fighterName,"/",simplify = TRUE)[,3]
+```
+
+Build Function
+
+```{r}
+url_crawler <- function(fighter){
+  base_url <- "https://www.sherdog.com"
+  
+  full_url <- glue(base_url,"{fighter}")
+  
+  read_html(full_url) %>% 
+    html_nodes("body > div.container > div:nth-child(3) > div.col_left > section:nth-child(4) > div > div.content.table") %>% html_children() %>% 
+    html_table(header = TRUE, fill=TRUE) %>% 
+    as.data.frame()
+}
+
+```
+Test Function
+
+```{r}
+url_crawler("/fighter/Khabib-Nurmagomedov-56035") -> aa
+
+```
+
+
+```{r}
+map_dfgit (seed_div$fighterName, url_crawler,.id = "Source")
+```
+
