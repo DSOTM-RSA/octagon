@@ -26,7 +26,7 @@ read_html(url) %>% html_nodes("table") %>% html_table()
 Get specific table.
 
 ```{r}
-read_html(url) %>% html_nodes("body > div.container > div:nth-child(3) > div.col_left > section:nth-child(4) > div > div.content.table") %>% html_children() %>% html_table(header = TRUE) %>% as.data.frame() -> a
+read_html(url) %>% html_nodes("body > div.container > div:nth-child(3) > div.col_left > section:nth-child(4) > div > div.content.table") %>% html_children() %>% html_table(header = TRUE) %>% as.data.frame() -> sample_table
 ```
 
 ```{r}
@@ -35,7 +35,31 @@ names(seed_div)[1]<-"fighterName"
 rownames(seed_div)<-str_split(seed_div$fighterName,"/",simplify = TRUE)[,3]
 ```
 
-Build Function
+Create Division Crawler
+
+```{r}
+fighter_crawler <- function(url){
+    base_url <- "https://www.sherdog.com"
+    fighter_url <- glue(base_url,"{url}")
+    
+    tmp <-read_html(fighter_url) %>% html_nodes("td:nth-child(2) a , .cnaccept") %>% html_attr(.,"href") %>% as.data.frame()
+    nam<-paste0(fighter_url,"_")
+    assign(nam,tmp)
+    
+}
+```
+
+Test Division Crawler
+
+```{r}
+seed <- seed_div %>% slice_head(n=8)
+
+map_df(seed$fighterName,fighter_crawler) %>% unique %>% rowid_to_column() -> div_lightweights 
+names(div_lightweights)[2]<-"fighterName"
+```
+
+
+Create Results Crawler
 
 ```{r}
 url_crawler <- function(fighter){
@@ -50,15 +74,40 @@ url_crawler <- function(fighter){
 }
 
 ```
-Test Function
+
+Test Results Crawler
 
 ```{r}
-url_crawler("/fighter/Khabib-Nurmagomedov-56035") -> aa
+url_crawler("/fighter/Khabib-Nurmagomedov-56035") -> sample_results
 
 ```
 
+Execute over the entire 155lb division. 
 
 ```{r}
-map_dfgit (seed_div$fighterName, url_crawler,.id = "Source")
+map_df(div_lightweights$fighterName, url_crawler,.id = "rowid") -> results_lightweights
 ```
+
+
+
+
+```{r}
+library(stringr)
+
+results_lightweights -> wc
+```
+
+```{r}
+div_lightweights %>%  mutate(Opponent = str_trim(str_replace_all(str_remove_all(str_split(fighterName,"fighter/",simplify = TRUE)[,2],"[0-9]"),"-"," "))) -> div_lightweights
+
+wc %>% select(rowid:Time) %>% 
+  mutate(Method=str_c(str_split(Method.Referee,"[)]",simplify = TRUE)[,1],")")) %>% 
+  select(-Method.Referee) %>% rename(Round = R) %>% 
+  na.omit -> wc
+```
+
+
+
+
+
 
