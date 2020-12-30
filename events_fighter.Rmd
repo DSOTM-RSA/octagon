@@ -134,9 +134,15 @@ Calculate Streak Length and Arrange
 
 ```{r}
 wc %>%  group_by(rowid,streak_id) %>% mutate(streak=row_number()) %>% ungroup() %>% 
-  arrange(.,rowid,DateEvent) -> wc
+  arrange(.,rowid,DateEvent) %>% rename(PreviousOutcome=lagged) -> wc
 ```
 
+Previous Result
+
+```{r}
+wc %>% group_by(rowid) %>% mutate(StreakLength = lag(streak)) %>% 
+  mutate(StreakLength = case_when(PreviousOutcome == 0 ~ -StreakLength, TRUE ~ StreakLength)) -> wc
+```
 
 
 
