@@ -89,6 +89,7 @@ map_df(div_lightweights$fighterName, url_crawler,.id = "rowid") -> results_light
 ```
 
 
+Data Preparation
 
 
 ```{r}
@@ -97,6 +98,7 @@ library(stringr)
 results_lightweights -> wc
 ```
 
+
 ```{r}
 div_lightweights %>%  mutate(Opponent = str_trim(str_replace_all(str_remove_all(str_split(fighterName,"fighter/",simplify = TRUE)[,2],"[0-9]"),"-"," "))) -> div_lightweights
 
@@ -104,6 +106,35 @@ wc %>% select(rowid:Time) %>%
   mutate(Method=str_c(str_split(Method.Referee,"[)]",simplify = TRUE)[,1],")")) %>% 
   select(-Method.Referee) %>% rename(Round = R) %>% 
   na.omit -> wc
+```
+
+Extract Dates of Events
+
+```{r}
+wc %>% mutate(DateEvent= as.Date(str_replace_all(str_replace_all(str_sub(wc$Event,start = -15),"/","-")," ",""),format = "%b-%d-%Y")) -> wc
+
+str_sub(wc$Event,start=-15) <-""
+```
+
+Calculate Streaks - Prepare
+
+```{r}
+
+wc[order(wc$DateEvent),] %>% 
+  group_by(rowid) %>% 
+  mutate(Outcome = case_when(Result=="win" ~ 1, TRUE ~0)) %>% 
+  mutate(lagged = lag(Outcome)) %>% mutate(start=(Outcome != lagged)) -> wc
+
+wc %>% mutate(start=replace_na(start,TRUE)) -> wc
+
+wc %>% mutate(streak_id = cumsum(start)) ->wc
+
+```
+Calculate Streak Length and Arrange
+
+```{r}
+wc %>%  group_by(rowid,streak_id) %>% mutate(streak=row_number()) %>% ungroup() %>% 
+  arrange(.,rowid,DateEvent) -> wc
 ```
 
 
