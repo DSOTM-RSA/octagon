@@ -133,8 +133,11 @@ wc %>% mutate(streak_id = cumsum(start)) ->wc
 Calculate Streak Length and Arrange
 
 ```{r}
-wc %>%  group_by(rowid,streak_id) %>% mutate(streak=row_number()) %>% ungroup() %>% 
-  arrange(.,rowid,DateEvent) %>% rename(PreviousOutcome=lagged) -> wc
+wc %>%  group_by(rowid,streak_id) %>% 
+  mutate(streak=row_number()) %>% 
+  ungroup() %>% 
+  arrange(.,rowid,DateEvent) %>% 
+  rename(PreviousOutcome=lagged) -> wc
 ```
 
 Previous Result
@@ -144,7 +147,39 @@ wc %>% group_by(rowid) %>% mutate(StreakLength = lag(streak)) %>%
   mutate(StreakLength = case_when(PreviousOutcome == 0 ~ -StreakLength, TRUE ~ StreakLength)) -> wc
 ```
 
+Win Ratio
 
+```{r}
+wc %>% ungroup() %>% group_by(rowid) %>%  
+  mutate(WinRatio = lag(cumsum(Outcome))/(row_number()-1)) %>% 
+  mutate(CountFights =row_number()-1) ->wc
+```
 
+Finish Ratio and Finish Previous
 
+```{r}
+wc %>% mutate(FinishRatio = lag(!str_detect(Method,"Decision") & Outcome == 1)) %>%
+  mutate(FinishRatio=replace_na(FinishRatio,FALSE)) %>% 
+  mutate(FinishRatio = cumsum(FinishRatio)/(CountFights)) %>% 
+  mutate(FinishPrevious = case_when(!str_detect(Method,"Decision") & Outcome == 1 ~TRUE, TRUE ~ FALSE)) %>% 
+  mutate(FinishPrevious=lag(FinishPrevious)) -> wc
+```
+
+Finished Ratio and Finished Previous
+
+```{r}
+wc %>% mutate(FinishedRatio = lag(!str_detect(Method,"Decision") & Outcome == 0)) %>% mutate(FinishedRatio = replace_na(FinishedRatio,FALSE)) %>% 
+  mutate(FinishedRatio = cumsum(FinishedRatio)/(CountFights)) %>% 
+  mutate(FinishedPrevious = case_when(!str_detect(Method,"Decision") & Outcome == 0 ~TRUE, TRUE ~ FALSE)) %>% 
+  mutate(FinishedPrevious = lag(FinishedPrevious)) -> wc
+```
+
+```{r}
+wc %>% mutate(FinishedTrue = lag(!str_detect(Method,"Decision") & Outcome == 0)) %>% mutate(FinishedTrue = replace_na(FinishedTrue,FALSE)) %>% 
+  mutate(FinishedCount=cumsum(FinishedTrue)) %>% 
+  mutate(FinishTrue = lag(!str_detect(Method,"Decision") & Outcome == 1)) %>% mutate(FinishTrue = replace_na(FinishTrue,FALSE)) %>% 
+  mutate(FinishCount=cumsum(FinishTrue)) %>% 
+  mutate(DamageDiff = FinishCount/(FinishedCount+1)) %>% select(c(-FinishedTrue,-FinishTrue)) -> wc
+
+```
 
