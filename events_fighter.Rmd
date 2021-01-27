@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-```{r cars}
+```{r}
 # event results
 library(rvest)
 library(tidyverse)
@@ -52,7 +52,7 @@ fighter_crawler <- function(url){
 Test Division Crawler
 
 ```{r}
-seed <- seed_div %>% slice_head(n=8)
+seed <- seed_div %>% slice_head(n=31)
 
 map_df(seed$fighterName,fighter_crawler) %>% unique %>% rowid_to_column() -> div_lightweights 
 names(div_lightweights)[2]<-"fighterName"
@@ -88,6 +88,11 @@ Execute over the entire 155lb division.
 map_df(div_lightweights$fighterName, url_crawler,.id = "rowid") -> results_lightweights
 ```
 
+```{r}
+write.csv(results_lightweights,"results_lightweights.csv")
+```
+
+
 
 Data Preparation
 
@@ -98,9 +103,13 @@ library(stringr)
 results_lightweights -> wc
 ```
 
+```{r}
+
+div_lightweights %>%  mutate(Opponent = str_trim(str_replace_all(str_remove_all(str_split(fighterName,"fighter/",simplify = TRUE)[,2],"[0-9]"),"-"," "))) -> div_lightweights
+```
+
 
 ```{r}
-div_lightweights %>%  mutate(Opponent = str_trim(str_replace_all(str_remove_all(str_split(fighterName,"fighter/",simplify = TRUE)[,2],"[0-9]"),"-"," "))) -> div_lightweights
 
 wc %>% select(rowid:Time) %>% 
   mutate(Method=str_c(str_split(Method.Referee,"[)]",simplify = TRUE)[,1],")")) %>% 
@@ -181,5 +190,104 @@ wc %>% mutate(FinishedTrue = lag(!str_detect(Method,"Decision") & Outcome == 0))
   mutate(FinishCount=cumsum(FinishTrue)) %>% 
   mutate(DamageDiff = FinishCount/(FinishedCount+1)) %>% select(c(-FinishedTrue,-FinishTrue)) -> wc
 
+```
+
+```{r}
+write.csv(wc,"results_cleaned.csv")
+```
+
+Preparation for Results Matrix 
+
+Join to Get Fighter Name
+
+```{r}
+wc %>% mutate(rowid = as.integer(rowid)) -> wx
+
+div_lightweights %>% rename(Fighter = Opponent) -> div_lightweights
+
+wx %>% left_join(div_lightweights,by="rowid") ->wx
+
+wx %>% rename(Fighter=Fighter.y, Opponent=Fighter.x) -> wx
+
+```
+Reset for Opponent Id
+
+```{r}
+div_lightweights %>% rename(Opponent = Fighter) -> div_lightweights
+```
+
+Join For Opponent Id
+
+```{r}
+wx %>% left_join(div_lightweights,by="Opponent") -> wx
+
+wx %>% rename(FighterId = rowid.x, OpponentId = rowid.y) -> wx
+
+```
+Remove Unnecessary Columns
+
+```{r}
+wx %>% select(-fighterName.x,-fighterName.y) -> wx
+```
+
+Join For Composite
+
+```{r}
+wx %>% mutate(FighterComposite = str_c(wx$FighterId,wx$Opponent,wx$DateEvent,sep = "_"),
+              OpponentComposite =
+                str_c(wx$OpponentId,wx$Fighter,wx$DateEvent,sep = "_")) ->wx 
+```
+
+Make Copies for Self Join
+```{r}
+wx -> wy
+```
+
+
+Join for Result Set
+
+```{r}
+wx %>% left_join(wy,by=c("FighterComposite"="OpponentComposite")) -> resultset
+```
+
+```{r}
+write.csv(resultset,"resultset.csv")
+```
+
+Filter down to reflect only complete cases
+
+```{r}
+resultset %>% filter(complete.cases(.)) -> modelset
+
+```
+
+Define Dataset
+
+```{r}
+modelset %>% select(Outcome.x,
+                    CountFights.x,
+                    PreviousOutcome.x,
+                    StreakLength.x,
+                    WinRatio.x,
+                    FinishRatio.x,
+                    FinishPrevious.x,
+                    FinishedRatio.x,
+                    FinishPrevious.x,
+                    FinishCount.x,
+                    FinishedCount.x,
+                    DamageDiff.x,
+                    CountFights.y,
+                    PreviousOutcome.y,
+                    StreakLength.y,
+                    WinRatio.y,
+                    FinishRatio.y,
+                    FinishPrevious.y,
+                    FinishedRatio.y,
+                    FinishPrevious.y,
+                    FinishCount.y,
+                    FinishedCount.y,
+                    DamageDiff.y) ->rawset
+
+write.csv(rawset,"rawset.csv")
 ```
 
