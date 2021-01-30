@@ -16,6 +16,12 @@ library(tidyverse)
 library(glue)
 ```
 
+
+```{r}
+Sys.Date()
+```
+
+
 Get all tables
 
 ```{r}
@@ -89,7 +95,8 @@ map_df(div_lightweights$fighterName, url_crawler,.id = "rowid") -> results_light
 ```
 
 ```{r}
-write.csv(results_lightweights,"results_lightweights.csv")
+write.csv(div_lightweights,paste0(Sys.Date(),"_","div_lightweights.csv"))
+write.csv(results_lightweights,paste0(Sys.Date(),"_","results_lightweights.csv"))
 ```
 
 
@@ -193,7 +200,7 @@ wc %>% mutate(FinishedTrue = lag(!str_detect(Method,"Decision") & Outcome == 0))
 ```
 
 ```{r}
-write.csv(wc,"results_cleaned.csv")
+write.csv(wc,paste0(Sys.Date(),"_","results_cleaned.csv"))
 ```
 
 Preparation for Results Matrix 
@@ -210,6 +217,7 @@ wx %>% left_join(div_lightweights,by="rowid") ->wx
 wx %>% rename(Fighter=Fighter.y, Opponent=Fighter.x) -> wx
 
 ```
+
 Reset for Opponent Id
 
 ```{r}
@@ -251,20 +259,44 @@ wx %>% left_join(wy,by=c("FighterComposite"="OpponentComposite")) -> resultset
 ```
 
 ```{r}
-write.csv(resultset,"resultset.csv")
+write.csv(resultset,paste0(Sys.Date(),"_","resultset.csv"))
 ```
+
+Unduplicate resultset
+
+```{r}
+resultset[!duplicated(resultset[c("Event.x","Round.x","Time.x","Method.x")]),] -> unduplicated_resultset
+write.csv(unduplicated_resultset,paste0(Sys.Date(),"_","undup_resultset.csv"))
+```
+
 
 Filter down to reflect only complete cases
 
 ```{r}
-resultset %>% filter(complete.cases(.)) -> modelset
+unduplicated_resultset %>% filter(complete.cases(.)) -> modelset
+write.csv(modelset,paste0(Sys.Date(),"_","modelset.csv"))
+```
 
+
+
+
+Derived some more parameters
+```{r}
+modelset %>% mutate(delta_FP=FinishPrevious.x-FinishPrevious.y,
+                    delta_FIP=FinishedPrevious.x-FinishedPrevious.y,
+                    delta_FC=FinishCount.x-FinishCount.y,
+                    delta_FIC=FinishedCount.x-FinishedCount.y) ->modelset_derived
+
+write.csv(modelset_derived,paste0(Sys.Date(),"_","modelset_derived.csv"))
 ```
 
 Define Dataset
 
 ```{r}
-modelset %>% select(Outcome.x,
+modelset_derived %>% select(Result.x,
+                    Method.x,
+                    Fighter.x,
+                    Opponent.y,
                     CountFights.x,
                     PreviousOutcome.x,
                     StreakLength.x,
@@ -286,8 +318,12 @@ modelset %>% select(Outcome.x,
                     FinishPrevious.y,
                     FinishCount.y,
                     FinishedCount.y,
-                    DamageDiff.y) ->rawset
+                    DamageDiff.y,
+                    delta_FP,
+                    delta_FIP,
+                    delta_FC,
+                    delta_FIC) ->modelset_selected
 
-write.csv(rawset,"rawset.csv")
+write.csv(modelset_selected,paste0(Sys.Date(),"_","modelset_selected.csv"))
 ```
 
