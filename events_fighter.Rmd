@@ -296,7 +296,7 @@ Define Dataset
 modelset_derived %>% select(Result.x,
                     Method.x,
                     Fighter.x,
-                    Opponent.y,
+                    Opponent.x,
                     CountFights.x,
                     PreviousOutcome.x,
                     StreakLength.x,

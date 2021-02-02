@@ -1,3 +1,95 @@
+# TREE MBASED MODELS
+
+library(tidyverse)
+library(caret)
+
+setwd("C:/Users/eoedd/Desktop/locstore/projects/_octagon")
+df_caret = data.table::fread('2021-01-31_modelset_selected.csv',drop = c('V1','Method.x'))
+
+
+# make a binary problem and remove zero variance predictors
+df_caret %>% filter(Result.x=="win" | Result.x =="loss") %>% 
+  select(-Fighter.x, -Opponent.x) -> df_caret_bin
+
+
+# split into training and test data
+inTraining <- createDataPartition(df_caret_bin$Result.x, p = .70, list = FALSE)
+training <- df_caret_bin[ inTraining,]
+testing  <- df_caret_bin[-inTraining,]
+
+
+# basic summary
+str(df_caret_bin)
+summary(df_caret_bin)
+
+
+# pre-process for this model
+preProcessSet <- preProcess(df_caret_bin,
+                            method = c("center","scale","YeoJohnson","nzv"))
+
+preProcessSet
+
+# apply to data
+trainTransformed <- predict(preProcessSet,training)
+testTransformed <- predict(preProcessSet,testing)
+
+
+# define training regime
+plsCtrl <- trainControl(
+  method = "repeatedcv", 
+  repeats = 5,
+  number=5,
+  classProbs = TRUE, 
+  summaryFunction = twoClassSummary
+)
+
+
+# train model
+set.seed(111)
+plsFit <- train(Result.x~.,
+                 data = trainTransformed,
+                 method="pls",
+                 tuneLength=5,
+                 trControl = plsCtrl,
+                 metric="ROC")
+
+plsFit
+
+# predict on training
+plsClasses <- predict(plsFit, newdata = testTransformed)
+
+plsProbs <- predict(plsFit, newdata = testTransformed, type = "prob")
+head(plsProbs)
+
+# check performance
+confusionMatrix(data=plsClasses, as.factor(testTransformed$Result.x),positive = "win")
+
+
+
+# gbm native
+
+library(gbm)
+set.seed(111)
+
+training %>% mutate(FinishPrevious.x = as.factor(FinishPrevious.x),
+                    FinishPrevious.y = as.factor(FinishPrevious.y),
+                    Result = case_when(Result.x == "win" ~1, TRUE~0)) ->training
+
+gbmFit<- gbm(Result~.,
+             data=training[,-1],
+             n.trees = 2000,
+             interaction.depth = 3,
+             shrinkage = 0.001,
+             cv.folds = 5,
+             n.cores = 3)
+
+gbmFit
+
+gbm.perf(gbmFit,method = "cv")
+
+pretty.gbm.tree(gbmFit)
+
+predict.gbm(gbmFit, newdata = testing[,-1], type = "response")
 
 # Initialize Libraries
 
@@ -76,104 +168,8 @@ df_fit %>% dplyr::mutate(Y = case_when(Outcome.x == 1 ~ "Win", TRUE ~ "Loss")) -
 write.csv(df_fit,"model_validation.csv")
 
 
-# caret
-
-library(tidyverse)
-library(caret)
-
-setwd("C:/Users/eoedd/Desktop/locstore/projects/_octagon")
 
 
 
-df_caret = data.table::fread('rawset.csv',drop = 'V1')
-df_caret %>% dplyr::mutate(Y = case_when(Outcome.x == 1 ~ "Win", TRUE ~ "Loss")) -> df_caret
-df_caret %>% select(-Outcome.x) -> df_caret
-
-inTraining <- createDataPartition(df_caret$Y, p = .70, list = FALSE)
-training <- df_caret[ inTraining,]
-testing  <- df_caret[-inTraining,]
-
-fitControl <- trainControl(
-  method = "repeatedcv",
-  number = 10,
-  repeats = 10)
 
 
-set.seed(825)
-
-# fit gbm
-gbmFit1 <- train(Y ~ ., data = training, 
-                 method = "gbm", 
-                 trControl = fitControl,
-                 verbose = FALSE)
-gbmFit1
-
-
-earthFit1 <- train(Y ~ ., data = training, 
-                 method = "rpart", 
-                 trControl = fitControl,
-                 verbose = FALSE)
-earthFit1
-
-adaFit1 <- train(Y ~ ., data = training, 
-                 method = "adaboost", 
-                 trControl = fitControl,
-                 verbose = FALSE)
-
-
-
-gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 6), 
-                        n.trees = (1:3)*50, 
-                        shrinkage = 0.1,
-                        n.minobsinnode = 20)
-
-nrow(gbmGrid)
-
-set.seed(825)
-gbmFit2 <- train(Y ~ ., data = training, 
-                 method = "gbm", 
-                 trControl = fitControl, 
-                 verbose = FALSE, 
-                 ## Now specify the exact models 
-                 ## to evaluate:
-                 tuneGrid = gbmGrid)
-gbmFit2
-
-trellis.par.set(caretTheme())
-plot(gbmFit2)  
-
-
-fitControl <- trainControl(method = "repeatedcv",
-                           number = 10,
-                           repeats = 10,
-                           ## Estimate class probabilities
-                           classProbs = TRUE,
-                           ## Evaluate performance using 
-                           ## the following function
-                           summaryFunction = twoClassSummary)
-
-set.seed(825)
-gbmFit3 <- train(Y ~ ., data = training, 
-                 method = "gbm", 
-                 trControl = fitControl, 
-                 verbose = FALSE, 
-                 tuneGrid = gbmGrid,
-                 ## Specify which metric to optimize
-                 metric = "ROC")
-gbmFit3
-
-
-
-pp_hpc <- preProcess(df_caret[, -21])
-pp_hpc
-
-
-transformed <- predict(pp_hpc, newdata = df_caret[, -21])
-head(transformed)
-
-pp_no_nzv <- preProcess(df_caret[, -21], 
-                        method = c("center", "scale", "YeoJohnson", "nzv"))
-
-pp_no_nzv
-
-predict(pp_no_nzv, newdata = df_caret[1:20, -21])
