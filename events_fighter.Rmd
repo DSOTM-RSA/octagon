@@ -41,6 +41,25 @@ names(seed_div)[1]<-"fighterName"
 rownames(seed_div)<-str_split(seed_div$fighterName,"/",simplify = TRUE)[,3]
 ```
 
+
+# Create Seed Crawler
+```{r}
+# create seed crawler function
+
+seed_crawler <- function(url){
+  base_url <- "https://www.sherdog.com/fighter/"
+    fighter_url <- glue(base_url,"{url}")
+    
+  tmp_seed<-read_html(fighter_url) %>% 
+    html_nodes("td:nth-child(2) a , .cnaccept") %>% 
+    html_attr(.,"href") %>% as.data.frame() %>% 
+    unique()
+}
+
+
+```
+
+
 Create Division Crawler
 
 ```{r}
@@ -55,7 +74,8 @@ fighter_crawler <- function(url){
 }
 ```
 
-Test Division Crawler
+
+Test Division Crawler 155lbs
 
 ```{r}
 seed <- seed_div %>% slice_head(n=31)
@@ -98,6 +118,273 @@ map_df(div_lightweights$fighterName, url_crawler,.id = "rowid") -> results_light
 write.csv(div_lightweights,paste0(Sys.Date(),"_","div_lightweights.csv"))
 write.csv(results_lightweights,paste0(Sys.Date(),"_","results_lightweights.csv"))
 ```
+
+OPERATIONAL
+
+# Pass Division Seeds For Multiple Divisions
+```{r}
+url <-c("Max-Holloway-38671","Neil-Magny-69166","Ricky-Simon-111209","Alexander-Volkanovski-101527","Umar-Nurmagomedov-240893")
+map_df(url,seed_crawler) ->out
+
+names(out)[1]<-"fighterName"
+# for fighter who moved across a division
+out %>% unique() ->out
+rownames(out)<-str_split(out$fighterName,"/",simplify = TRUE)[,3]
+```
+
+# Execute Fighter Crawler
+```{r}
+map_df(out$fighterName,fighter_crawler) %>% unique %>% rowid_to_column() -> div_135_145_170 
+names(div_135_145_170)[2]<-"fighterName"
+```
+
+
+# Execute Results Crawler
+
+```{r}
+map_df(div_135_145_170$fighterName, url_crawler,.id = "rowid") -> results_135_145_170
+```
+
+# Data Preparation
+
+```{r}
+library(stringr)
+
+results_135_145_170 -> working_copy
+```
+
+```{r}
+div_135_145_170 %>%  mutate(Opponent = str_trim(str_replace_all(str_remove_all(str_split(fighterName,"fighter/",simplify = TRUE)[,2],"[0-9]"),"-"," "))) -> div_135_145_170
+```
+
+```{r}
+working_copy %>% select(rowid:Time) %>% 
+  mutate(Method=str_c(str_split(Method.Referee,"[)]",simplify = TRUE)[,1],")")) %>% 
+  select(-Method.Referee) %>% rename(Round = R) %>% 
+  na.omit -> working_copy
+```
+
+Extract Dates of Events
+```{r}
+working_copy %>% mutate(DateEvent= as.Date(str_replace_all(str_replace_all(str_sub(working_copy$Event,start = -15),"/","-")," ",""),format = "%b-%d-%Y")) -> working_copy
+
+str_sub(working_copy$Event,start=-15) <-""
+```
+
+Calculate Streaks - Prepare
+
+```{r}
+working_copy[order(working_copy$DateEvent),] %>% 
+  group_by(rowid) %>% 
+  mutate(Outcome = case_when(Result=="win" ~ 1, TRUE ~0)) %>% 
+  mutate(lagged = lag(Outcome)) %>% mutate(start=(Outcome != lagged)) -> working_copy
+
+working_copy %>% mutate(start=replace_na(start,TRUE)) -> working_copy
+
+working_copy %>% mutate(streak_id = cumsum(start)) ->working_copy
+
+```
+Calculate Streak Length and Arrange
+
+
+```{r}
+working_copy %>%  group_by(rowid,streak_id) %>% 
+  mutate(streak=row_number()) %>% 
+  ungroup() %>% 
+  arrange(.,rowid,DateEvent) %>% 
+  rename(PreviousOutcome=lagged) -> working_copy
+```
+
+Previous Result
+
+```{r}
+working_copy %>% group_by(rowid) %>% mutate(StreakLength = lag(streak)) %>% 
+  mutate(StreakLength = case_when(PreviousOutcome == 0 ~ -StreakLength, TRUE ~ StreakLength)) -> working_copy
+```
+
+Win Ratio
+
+```{r}
+working_copy %>% ungroup() %>% group_by(rowid) %>%  
+  mutate(WinRatio = lag(cumsum(Outcome))/(row_number()-1)) %>% 
+  mutate(CountFights =row_number()-1) ->working_copy
+```
+
+Finish Ratio and Finish Previous
+
+```{r}
+working_copy %>% mutate(FinishRatio = lag(!str_detect(Method,"Decision") & Outcome == 1)) %>%
+  mutate(FinishRatio=replace_na(FinishRatio,FALSE)) %>% 
+  mutate(FinishRatio = cumsum(FinishRatio)/(CountFights)) %>% 
+  mutate(FinishPrevious = case_when(!str_detect(Method,"Decision") & Outcome == 1 ~TRUE, TRUE ~ FALSE)) %>% 
+  mutate(FinishPrevious=lag(FinishPrevious)) -> working_copy
+```
+
+Finished Ratio and Finished Previous
+
+```{r}
+working_copy %>% mutate(FinishedRatio = lag(!str_detect(Method,"Decision") & Outcome == 0)) %>% mutate(FinishedRatio = replace_na(FinishedRatio,FALSE)) %>% 
+  mutate(FinishedRatio = cumsum(FinishedRatio)/(CountFights)) %>% 
+  mutate(FinishedPrevious = case_when(!str_detect(Method,"Decision") & Outcome == 0 ~TRUE, TRUE ~ FALSE)) %>% 
+  mutate(FinishedPrevious = lag(FinishedPrevious)) -> working_copy
+```
+
+```{r}
+working_copy %>% mutate(FinishedTrue = lag(!str_detect(Method,"Decision") & Outcome == 0)) %>% mutate(FinishedTrue = replace_na(FinishedTrue,FALSE)) %>% 
+  mutate(FinishedCount=cumsum(FinishedTrue)) %>% 
+  mutate(FinishTrue = lag(!str_detect(Method,"Decision") & Outcome == 1)) %>% mutate(FinishTrue = replace_na(FinishTrue,FALSE)) %>% 
+  mutate(FinishCount=cumsum(FinishTrue)) %>% 
+  mutate(DamageDiff = FinishCount/(FinishedCount+1)) %>% select(c(-FinishedTrue,-FinishTrue)) -> working_copy
+
+```
+
+```{r}
+desPath <- as.character(Sys.Date())
+setwd("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data")
+dir.create(desPath)
+setwd(paste0("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data","/",desPath))
+write.csv(working_copy,"result-metrics.csv")
+```
+
+
+# Build Results Matrix
+
+Join to Get Fighter Name
+
+```{r}
+working_copy %>% mutate(rowid = as.integer(rowid)) -> working_copy_x
+
+div_135_145_170 %>% rename(Fighter = Opponent) -> div_135_145_170
+
+working_copy_x %>% left_join(div_135_145_170,by="rowid") ->working_copy_x
+
+working_copy_x %>% rename(Fighter=Fighter.y, Opponent=Fighter.x) -> working_copy_x
+
+```
+
+Reset for Opponent Id
+
+```{r}
+div_135_145_170 %>% rename(Opponent = Fighter) -> div_135_145_170
+```
+
+Join For Opponent Id
+
+```{r}
+working_copy_x %>% left_join(div_135_145_170,by="Opponent") -> working_copy_x
+
+working_copy_x %>% rename(FighterId = rowid.x, OpponentId = rowid.y) -> working_copy_x
+
+```
+Remove Unnecessary Columns
+
+```{r}
+working_copy_x %>% select(-fighterName.x,-fighterName.y) -> working_copy_x
+```
+
+Join For Composite
+
+```{r}
+working_copy_x %>% 
+  mutate(FighterComposite = str_c(working_copy_x$FighterId,
+                                  working_copy_x$Opponent,
+                                  working_copy_x$DateEvent,sep = "_"),
+        OpponentComposite = str_c(working_copy_x$OpponentId,
+                                  working_copy_x$Fighter,
+                                  working_copy_x$DateEvent,sep = "_")) ->working_copy_x 
+```
+
+Make Copies for Self Join
+```{r}
+working_copy_x -> working_copy_y
+```
+
+
+Join for Result Set
+
+```{r}
+working_copy_x %>% left_join(working_copy_y,by=c("FighterComposite"="OpponentComposite")) -> raw_event_results
+```
+
+```{r}
+setwd(paste0("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data","/",desPath))
+write.csv(raw_event_results,"raw-event-results.csv")
+```
+
+Unduplicate resultset
+
+Derive a column to further distinguish outcomes on events
+```{r}
+# the same for both rows
+# ads uniqueness to results which finish in the same way on the same card i.e. decisions
+raw_event_results %>% mutate(IdKey = FighterId.x+FighterId.y)
+```
+
+
+```{r}
+raw_event_results[!duplicated(raw_event_results[c("Event.x","Round.x","Time.x","Method.x")]),] -> unique_event_results
+```
+
+
+Filter down to reflect only complete cases
+
+```{r}
+unique_event_results %>% filter(complete.cases(.)) -> complete_event_results
+setwd(paste0("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data","/",desPath))
+write.csv(complete_event_results,"complete-event-results.csv")
+```
+Derived Additional Model Parameters
+```{r}
+complete_event_results %>% mutate(delta_FP=FinishPrevious.x-FinishPrevious.y,
+                    delta_FIP=FinishedPrevious.x-FinishedPrevious.y,
+                    delta_FC=FinishCount.x-FinishCount.y,
+                    delta_FIC=FinishedCount.x-FinishedCount.y) ->modelset_derived
+
+setwd(paste0("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data","/",desPath))
+write.csv(modelset_derived,"model-input-full.csv")
+```
+
+Define Dataset
+
+```{r}
+modelset_derived %>% select(Result.x,
+                    Method.x,
+                    Fighter.x,
+                    Opponent.x,
+                    CountFights.x,
+                    PreviousOutcome.x,
+                    StreakLength.x,
+                    WinRatio.x,
+                    FinishRatio.x,
+                    FinishPrevious.x,
+                    FinishedRatio.x,
+                    FinishPrevious.x,
+                    FinishCount.x,
+                    FinishedCount.x,
+                    DamageDiff.x,
+                    CountFights.y,
+                    PreviousOutcome.y,
+                    StreakLength.y,
+                    WinRatio.y,
+                    FinishRatio.y,
+                    FinishPrevious.y,
+                    FinishedRatio.y,
+                    FinishPrevious.y,
+                    FinishCount.y,
+                    FinishedCount.y,
+                    DamageDiff.y,
+                    delta_FP,
+                    delta_FIP,
+                    delta_FC,
+                    delta_FIC) ->modelset_selected
+
+setwd(paste0("C:/Users/eoedd/Desktop/locstore/projects/_octagon/data","/",desPath))
+write.csv(modelset_selected,"model-input-standard.csv")
+```
+
+
+
+
 
 
 
