@@ -70,7 +70,6 @@ fighter_crawler <- function(url){
     tmp <-read_html(fighter_url) %>% html_nodes("td:nth-child(2) a , .cnaccept") %>% html_attr(.,"href") %>% as.data.frame()
     nam<-paste0(fighter_url,"_")
     assign(nam,tmp)
-    
 }
 ```
 
@@ -123,10 +122,16 @@ OPERATIONAL
 
 # Pass Division Seeds For Multiple Divisions
 ```{r}
-url <-c("Max-Holloway-38671","Neil-Magny-69166","Ricky-Simon-111209","Alexander-Volkanovski-101527","Umar-Nurmagomedov-240893")
+url <-c(
+        "Ricky-Simon-111209","Umar-Nurmagomedov-240893",
+        "Alexander-Volkanovski-101527","Max-Holloway-38671",
+        "Justin-Gaethje-46648","Khabib-Nurmagomedov-56035",
+        "Neil-Magny-69166","Trevin-Giles-111237")
+
 map_df(url,seed_crawler) ->out
 
 names(out)[1]<-"fighterName"
+
 # for fighter who moved across a division
 out %>% unique() ->out
 rownames(out)<-str_split(out$fighterName,"/",simplify = TRUE)[,3]
@@ -134,15 +139,91 @@ rownames(out)<-str_split(out$fighterName,"/",simplify = TRUE)[,3]
 
 # Execute Fighter Crawler
 ```{r}
-map_df(out$fighterName,fighter_crawler) %>% unique %>% rowid_to_column() -> div_135_145_170 
-names(div_135_145_170)[2]<-"fighterName"
+map_df(out$fighterName,fighter_crawler) %>% unique %>% rowid_to_column() -> div_135_145_155_170_185 
+names(div_135_145_155_170_185)[2]<-"fighterName"
+```
+
+
+```{r}
+urls <-   c("http://www.amazon.com",
+            "http://this.isafakelink.biz",
+            "https://stackoverflow.com")
+
+url_in<-div_135_145_155_170_185$fighterName[3000:3125]
+
+
+valid_url <- function(url_in,t=2){
+    
+  base_url <- "http://www.sherdog.com"
+  con <- glue(base_url,"{url_in}")
+  con <- url(con)
+  check <- suppressWarnings(try(open.connection(con,open="rt",timeout=t),silent=T)[1])
+  suppressWarnings(try(close.connection(con),silent=T))
+  ifelse(is.null(check),TRUE,FALSE)
+}
+
+sapply(url_in,valid_url) ->valid_list
+```
+```{r}
+library(rex)
+valid_chars <- rex(except_some_of(".", "/", " ", "-"))
+
+re <- rex(
+  start,
+
+  # protocol identifier (optional) + //
+  group(list("http", maybe("s")) %or% "ftp", "://"),
+
+  # user:pass authentication (optional)
+  maybe(non_spaces,
+    maybe(":", zero_or_more(non_space)),
+    "@"),
+
+  #host name
+  group(zero_or_more(valid_chars, zero_or_more("-")), one_or_more(valid_chars)),
+
+  #domain name
+  zero_or_more(".", zero_or_more(valid_chars, zero_or_more("-")), one_or_more(valid_chars)),
+
+  #TLD identifier
+  group(".", valid_chars %>% at_least(2)),
+
+  # server port number (optional)
+  maybe(":", digit %>% between(2, 5)),
+
+  # resource path (optional)
+  maybe("/", non_space %>% zero_or_more()),
+
+  end
+)
+```
+
+```{r}
+
+url_in<-div_135_145_155_170_185$fighterName
+
+construct_url <- function(url){
+    
+  base_url <- "https://www.sherdog.com"
+  con <- glue(base_url,"{url}")
+}
+
+construct_url(url_in) -> urls_check 
+```
+
+```{r}
+all(grepl(re, urls_check) == TRUE)
 ```
 
 
 # Execute Results Crawler
 
 ```{r}
-map_df(div_135_145_170$fighterName, url_crawler,.id = "rowid") -> results_135_145_170
+start<- Sys.time()
+b1500 <- div_135_145_155_170_185$fighterName[1001:1500]
+map_df(b1500, url_crawler,.id = "rowid") -> results_b1500
+end <-Sys.time()
+end-start
 ```
 
 # Data Preparation
@@ -316,13 +397,13 @@ Unduplicate resultset
 Derive a column to further distinguish outcomes on events
 ```{r}
 # the same for both rows
-# ads uniqueness to results which finish in the same way on the same card i.e. decisions
-raw_event_results %>% mutate(IdKey = FighterId.x+FighterId.y)
+# ads uniqueness to results which finish in the same way on the sam e card i.e. decisions
+raw_event_results %>% mutate(IdKey = FighterId.x+FighterId.y) -> raw_event_results
 ```
 
 
 ```{r}
-raw_event_results[!duplicated(raw_event_results[c("Event.x","Round.x","Time.x","Method.x")]),] -> unique_event_results
+raw_event_results[!duplicated(raw_event_results[c("Event.x","Round.x","Time.x","Method.x","IdKey")]),] -> unique_event_results
 ```
 
 
@@ -564,6 +645,11 @@ unduplicated_resultset %>% filter(complete.cases(.)) -> modelset
 write.csv(modelset,paste0(Sys.Date(),"_","modelset.csv"))
 ```
 
+
+# Derive Odds
+```{r}
+
+```
 
 
 
